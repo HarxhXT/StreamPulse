@@ -2,6 +2,7 @@
 package com.streampulse.gaming
 
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -33,33 +34,61 @@ private data class InstalledGame(
     val packageName: String
 )
 
+private data class StreamScene(
+    val name: String,
+    val backgroundUri: Uri? = null,
+    val overlayText: String = ""
+)
+
 @Composable
 fun StudioHub(onBack: () -> Unit) {
     val context = LocalContext.current
 
     var selectedTab by remember { mutableStateOf("Games") }
-    var selectedGame by remember { mutableStateOf("No game selected") }
-    var selectedScene by remember { mutableStateOf("Gameplay") }
 
-    var customScene by remember { mutableStateOf("") }
-    val scenes = remember {
-        mutableStateListOf(
-            "Starting Soon",
-            "Gameplay",
-            "BRB",
-            "Ending"
-        )
+    val selectedGames = remember {
+        mutableStateListOf<String>()
     }
 
-    var musicName by remember { mutableStateOf("No music imported") }
-    var musicUri by remember { mutableStateOf<Uri?>(null) }
+    var selectedScene by remember {
+        mutableStateOf("Gameplay")
+    }
+
+    var customScene by remember {
+        mutableStateOf("")
+    }
+
+    var sceneText by remember {
+        mutableStateOf("")
+    }
+
+    var musicName by remember {
+        mutableStateOf("No music imported")
+    }
+
+    var musicUri by remember {
+        mutableStateOf<Uri?>(null)
+    }
 
     var gameVolume by remember { mutableFloatStateOf(80f) }
     var micVolume by remember { mutableFloatStateOf(70f) }
     var musicVolume by remember { mutableFloatStateOf(25f) }
 
+    var showStartInfo by remember {
+        mutableStateOf(false)
+    }
+
+    val scenes = remember {
+        mutableStateListOf(
+            StreamScene("Starting Soon", overlayText = "STREAM STARTING SOON"),
+            StreamScene("Gameplay"),
+            StreamScene("BRB", overlayText = "BE RIGHT BACK"),
+            StreamScene("Ending", overlayText = "THANKS FOR WATCHING")
+        )
+    }
+
     val musicPicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
+        ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri != null) {
             try {
@@ -67,9 +96,7 @@ fun StudioHub(onBack: () -> Unit) {
                     uri,
                     Intent.FLAG_GRANT_READ_URI_PERMISSION
                 )
-            } catch (_: Exception) {
-                // Some file providers do not support persistent permissions.
-            }
+            } catch (_: Exception) {}
 
             musicUri = uri
 
@@ -91,6 +118,29 @@ fun StudioHub(onBack: () -> Unit) {
         }
     }
 
+    val backgroundPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: Exception) {}
+
+            val index = scenes.indexOfFirst {
+                it.name == selectedScene
+            }
+
+            if (index >= 0) {
+                scenes[index] = scenes[index].copy(
+                    backgroundUri = uri
+                )
+            }
+        }
+    }
+
     val installedGames = remember {
         val intent = Intent(Intent.ACTION_MAIN).apply {
             addCategory(Intent.CATEGORY_LAUNCHER)
@@ -98,31 +148,51 @@ fun StudioHub(onBack: () -> Unit) {
 
         context.packageManager
             .queryIntentActivities(intent, 0)
-            .filter {
-                it.activityInfo.packageName != context.packageName
-            }
-            .map {
+            .mapNotNull { resolveInfo ->
+                val appInfo = resolveInfo.activityInfo.applicationInfo
+
+                if (appInfo.packageName == context.packageName) {
+                    return@mapNotNull null
+                }
+
+                val isSystemApp =
+                    (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+
+                val isGame =
+                    appInfo.category == ApplicationInfo.CATEGORY_GAME
+
+                if (isSystemApp && !isGame) {
+                    return@mapNotNull null
+                }
+
                 InstalledGame(
-                    name = it.loadLabel(context.packageManager).toString(),
-                    packageName = it.activityInfo.packageName
+                    name = resolveInfo.loadLabel(
+                        context.packageManager
+                    ).toString(),
+                    packageName = appInfo.packageName
                 )
             }
             .distinctBy { it.packageName }
             .sortedBy { it.name.lowercase() }
     }
 
+    val currentScene = scenes.firstOrNull {
+        it.name == selectedScene
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(HubBg)
-            .padding(18.dp)
+            .statusBarsPadding()
+            .padding(16.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "‹",
+                "‹",
                 color = HubPurple,
                 fontSize = 34.sp,
                 modifier = Modifier.clickable { onBack() }
@@ -137,6 +207,7 @@ fun StudioHub(onBack: () -> Unit) {
                     fontSize = 21.sp,
                     fontWeight = FontWeight.Bold
                 )
+
                 Text(
                     "StreamPulse • Studio Hub",
                     color = HubMuted,
@@ -145,11 +216,11 @@ fun StudioHub(onBack: () -> Unit) {
             }
         }
 
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(18.dp))
 
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(7.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             listOf("Games", "Scenes", "Music", "Mixer").forEach { tab ->
                 Box(
@@ -160,7 +231,7 @@ fun StudioHub(onBack: () -> Unit) {
                             RoundedCornerShape(12.dp)
                         )
                         .clickable { selectedTab = tab }
-                        .padding(vertical = 13.dp),
+                        .padding(vertical = 14.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -173,19 +244,20 @@ fun StudioHub(onBack: () -> Unit) {
             }
         }
 
-        Spacer(Modifier.height(18.dp))
+        Spacer(Modifier.height(16.dp))
 
         when (selectedTab) {
+
             "Games" -> {
                 Text(
-                    "SELECT YOUR GAME",
+                    "SELECT APPS & GAMES",
                     color = HubText,
                     fontSize = 17.sp,
                     fontWeight = FontWeight.Bold
                 )
 
                 Text(
-                    "Installed apps on your device",
+                    "Choose one or multiple installed apps",
                     color = HubMuted,
                     fontSize = 12.sp
                 )
@@ -193,23 +265,99 @@ fun StudioHub(onBack: () -> Unit) {
                 Spacer(Modifier.height(12.dp))
 
                 Text(
-                    "Selected: $selectedGame",
+                    "Selected: ${selectedGames.size}",
                     color = HubPurple,
-                    fontSize = 13.sp
+                    fontSize = 14.sp
                 )
 
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = {
+                            selectedGames.clear()
+                            selectedGames.addAll(
+                                installedGames.map { it.packageName }
+                            )
+                        },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = HubPurple
+                        )
+                    ) {
+                        Text("SELECT ALL")
+                    }
+
+                    OutlinedButton(
+                        onClick = { selectedGames.clear() },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("CLEAR")
+                    }
+                }
+
+                Spacer(Modifier.height(8.dp))
 
                 LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(9.dp)
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(installedGames) { game ->
-                        HubItem(
-                            title = game.name,
-                            subtitle = game.packageName,
-                            selected = selectedGame == game.name,
-                            onClick = { selectedGame = game.name }
-                        )
+                        val checked =
+                            selectedGames.contains(game.packageName)
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    if (checked) Color(0xFF302047)
+                                    else HubCard,
+                                    RoundedCornerShape(14.dp)
+                                )
+                                .clickable {
+                                    if (checked) {
+                                        selectedGames.remove(game.packageName)
+                                    } else {
+                                        selectedGames.add(game.packageName)
+                                    }
+                                }
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(
+                                    game.name,
+                                    color = HubText,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+
+                                Text(
+                                    game.packageName,
+                                    color = HubMuted,
+                                    fontSize = 10.sp
+                                )
+                            }
+
+                            Checkbox(
+                                checked = checked,
+                                onCheckedChange = { value ->
+                                    if (value) {
+                                        selectedGames.add(game.packageName)
+                                    } else {
+                                        selectedGames.remove(game.packageName)
+                                    }
+                                },
+                                colors = CheckboxDefaults.colors(
+                                    checkedColor = HubPurple
+                                )
+                            )
+                        }
                     }
                 }
             }
@@ -218,12 +366,12 @@ fun StudioHub(onBack: () -> Unit) {
                 Text(
                     "SCENE STUDIO",
                     color = HubText,
-                    fontSize = 17.sp,
+                    fontSize = 18.sp,
                     fontWeight = FontWeight.Bold
                 )
 
                 Text(
-                    "Select or create your stream scenes",
+                    "Create and customize your stream scenes",
                     color = HubMuted,
                     fontSize = 12.sp
                 )
@@ -232,37 +380,54 @@ fun StudioHub(onBack: () -> Unit) {
 
                 LazyColumn(
                     modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(9.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(scenes) { scene ->
                         HubItem(
-                            title = scene,
-                            subtitle = if (scene == selectedScene)
+                            title = scene.name,
+                            subtitle = if (scene.name == selectedScene)
                                 "Currently selected"
-                            else "Tap to select",
-                            selected = selectedScene == scene,
-                            onClick = { selectedScene = scene }
+                            else "Tap to edit",
+                            selected = selectedScene == scene.name,
+                            onClick = {
+                                selectedScene = scene.name
+                                sceneText = scene.overlayText
+                            }
                         )
                     }
                 }
 
+                Spacer(Modifier.height(10.dp))
+
+                Text(
+                    "CREATE CUSTOM SCENE",
+                    color = HubPurple,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp
+                )
+
                 OutlinedTextField(
                     value = customScene,
                     onValueChange = { customScene = it },
-                    label = { Text("Custom scene name") },
+                    label = { Text("Scene name") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     colors = hubFieldColors()
                 )
 
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(6.dp))
 
                 Button(
                     onClick = {
                         val name = customScene.trim()
-                        if (name.isNotEmpty() && !scenes.contains(name)) {
-                            scenes.add(name)
+
+                        if (
+                            name.isNotEmpty() &&
+                            scenes.none { it.name.equals(name, true) }
+                        ) {
+                            scenes.add(StreamScene(name))
                             selectedScene = name
+                            sceneText = ""
                             customScene = ""
                         }
                     },
@@ -271,7 +436,66 @@ fun StudioHub(onBack: () -> Unit) {
                         containerColor = HubPurple
                     )
                 ) {
-                    Text("＋  CREATE SCENE")
+                    Text("＋ CREATE SCENE")
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                Text(
+                    "EDIT SELECTED SCENE: $selectedScene",
+                    color = HubText,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp
+                )
+
+                OutlinedTextField(
+                    value = sceneText,
+                    onValueChange = { sceneText = it },
+                    label = { Text("Text shown on scene") },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = hubFieldColors()
+                )
+
+                Spacer(Modifier.height(8.dp))
+
+                OutlinedButton(
+                    onClick = {
+                        backgroundPicker.launch(arrayOf("image/*"))
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("＋ CHOOSE BACKGROUND IMAGE")
+                }
+
+                Text(
+                    if (currentScene?.backgroundUri != null)
+                        "Background image selected"
+                    else
+                        "No background image selected",
+                    color = HubMuted,
+                    fontSize = 11.sp
+                )
+
+                Spacer(Modifier.height(8.dp))
+
+                Button(
+                    onClick = {
+                        val index = scenes.indexOfFirst {
+                            it.name == selectedScene
+                        }
+
+                        if (index >= 0) {
+                            scenes[index] = scenes[index].copy(
+                                overlayText = sceneText
+                            )
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = HubPurple
+                    )
+                ) {
+                    Text("SAVE SCENE CHANGES")
                 }
             }
 
@@ -279,7 +503,7 @@ fun StudioHub(onBack: () -> Unit) {
                 Text(
                     "MUSIC STUDIO",
                     color = HubText,
-                    fontSize = 17.sp,
+                    fontSize = 18.sp,
                     fontWeight = FontWeight.Bold
                 )
 
@@ -311,13 +535,13 @@ fun StudioHub(onBack: () -> Unit) {
                         containerColor = HubPurple
                     )
                 ) {
-                    Text("＋  IMPORT MUSIC")
+                    Text("＋ IMPORT MUSIC")
                 }
 
                 Spacer(Modifier.height(15.dp))
 
                 Text(
-                    "Supported formats depend on Android and the selected file provider. Use music you have permission to stream.",
+                    "Music import is available. Audio playback and mixing will be added with the streaming engine. Use music you have permission to stream.",
                     color = HubMuted,
                     fontSize = 12.sp
                 )
@@ -327,7 +551,7 @@ fun StudioHub(onBack: () -> Unit) {
                 Text(
                     "AUDIO MIXER",
                     color = HubText,
-                    fontSize = 17.sp,
+                    fontSize = 18.sp,
                     fontWeight = FontWeight.Bold
                 )
 
@@ -340,119 +564,61 @@ fun StudioHub(onBack: () -> Unit) {
                 Spacer(Modifier.height(18.dp))
 
                 HubVolume(
-                    title = "Game Audio",
-                    value = gameVolume,
-                    onChange = { gameVolume = it }
-                )
+                    "Game Audio",
+                    gameVolume
+                ) { gameVolume = it }
 
                 HubVolume(
-                    title = "Microphone",
-                    value = micVolume,
-                    onChange = { micVolume = it }
-                )
+                    "Microphone",
+                    micVolume
+                ) { micVolume = it }
 
                 HubVolume(
-                    title = "Background Music",
-                    value = musicVolume,
-                    onChange = { musicVolume = it }
-                )
-
-                Spacer(Modifier.height(12.dp))
+                    "Background Music",
+                    musicVolume
+                ) { musicVolume = it }
 
                 Text(
-                    "These are currently interface controls. Actual audio capture and mixing will be implemented in the streaming engine.",
+                    "These sliders are currently interface settings. Actual audio mixing is not connected yet.",
                     color = HubMuted,
                     fontSize = 12.sp
                 )
             }
         }
-    }
-}
 
-@Composable
-private fun HubItem(
-    title: String,
-    subtitle: String,
-    selected: Boolean,
-    onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(
-                if (selected) Color(0xFF302047) else HubCard,
-                RoundedCornerShape(14.dp)
-            )
-            .clickable { onClick() }
-            .padding(15.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                title,
-                color = HubText,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 14.sp
-            )
-            Text(
-                subtitle,
-                color = HubMuted,
-                fontSize = 11.sp
-            )
-        }
+        Spacer(Modifier.height(10.dp))
 
-        if (selected) {
-            Text(
-                "✓",
-                color = HubPurple,
-                fontSize = 20.sp
-            )
-        }
-    }
-}
-
-@Composable
-private fun HubVolume(
-    title: String,
-    value: Float,
-    onChange: (Float) -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(HubCard, RoundedCornerShape(14.dp))
-            .padding(15.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
+        Button(
+            onClick = { showStartInfo = true },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(54.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = HubPurple
+            ),
+            shape = RoundedCornerShape(15.dp)
         ) {
-            Text(title, color = HubText, fontWeight = FontWeight.SemiBold)
-            Text("${value.toInt()}%", color = HubPurple)
+            Text(
+                "▶  START STREAM",
+                color = HubText,
+                fontWeight = FontWeight.Bold
+            )
         }
 
-        Slider(
-            value = value,
-            onValueChange = onChange,
-            valueRange = 0f..100f,
-            colors = SliderDefaults.colors(
-                thumbColor = HubPurple,
-                activeTrackColor = HubPurple
-            )
+        Text(
+            "Broadcast engine and platform login are not connected yet.",
+            color = HubMuted,
+            fontSize = 10.sp
         )
     }
 
-    Spacer(Modifier.height(12.dp))
-}
-
-@Composable
-private fun hubFieldColors() = OutlinedTextFieldDefaults.colors(
-    focusedTextColor = HubText,
-    unfocusedTextColor = HubText,
-    focusedBorderColor = HubPurple,
-    unfocusedBorderColor = HubMuted,
-    focusedLabelColor = HubPurple,
-    unfocusedLabelColor = HubMuted,
-    cursorColor = HubPurple
-)
-
+    if (showStartInfo) {
+        AlertDialog(
+            onDismissRequest = { showStartInfo = false },
+            containerColor = HubCard,
+            title = {
+                Text("Streaming engine not ready", color = HubText)
+            },
+            text = {
+                Text(
+        
