@@ -540,7 +540,8 @@ fun StudioHub(onBack: () -> Unit) {
 
                 Spacer(Modifier.height(15.dp))
 
-                Text("Music import is available. Audio playback and mixing will be added with the streaming engine. Use music you have permission to stream.",
+                Text(
+                    "Music import is available. Audio playback and mixing will be added with the streaming engine. Use music you have permission to stream.",
                     color = HubMuted,
                     fontSize = 12.sp
                 )
