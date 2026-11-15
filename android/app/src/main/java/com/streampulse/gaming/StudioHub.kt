@@ -540,8 +540,7 @@ fun StudioHub(onBack: () -> Unit) {
 
                 Spacer(Modifier.height(15.dp))
 
-                Text(
-                    "Music import is available. Audio playback and mixing will be added with the streaming engine. Use music you have permission to stream.",
+                Text("Music import is available. Audio playback and mixing will be added with the streaming engine. Use music you have permission to stream.",
                     color = HubMuted,
                     fontSize = 12.sp
                 )
@@ -622,3 +621,101 @@ fun StudioHub(onBack: () -> Unit) {
             text = {
                 Text(
         
+                    "Your Studio settings are available, but actual screen capture, encoding and YouTube/Kick broadcasting still need to be connected.",
+                    color = HubMuted
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { showStartInfo = false }
+                ) {
+                    Text("OK", color = HubPurple)
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun HubItem(
+    title: String,
+    subtitle: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                if (selected) Color(0xFF302047) else HubCard,
+                RoundedCornerShape(14.dp)
+            )
+            .clickable { onClick() }
+            .padding(14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                title,
+                color = HubText,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 14.sp
+            )
+
+            Text(
+                subtitle,
+                color = HubMuted,
+                fontSize = 11.sp
+            )
+        }
+
+        if (selected) {
+            Text("✓", color = HubPurple, fontSize = 20.sp)
+        }
+    }
+}
+
+@Composable
+private fun HubVolume(
+    title: String,
+    value: Float,
+    onChange: (Float) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(HubCard, RoundedCornerShape(14.dp))
+            .padding(14.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(title, color = HubText, fontWeight = FontWeight.SemiBold)
+            Text("${value.toInt()}%", color = HubPurple)
+        }
+
+        Slider(
+            value = value,
+            onValueChange = onChange,
+            valueRange = 0f..100f,
+            colors = SliderDefaults.colors(
+                thumbColor = HubPurple,
+                activeTrackColor = HubPurple
+            )
+        )
+    }
+
+    Spacer(Modifier.height(12.dp))
+}
+
+@Composable
+private fun hubFieldColors() = OutlinedTextFieldDefaults.colors(
+    focusedTextColor = HubText,
+    unfocusedTextColor = HubText,
+    focusedBorderColor = HubPurple,
+    unfocusedBorderColor = HubMuted,
+    focusedLabelColor = HubPurple,
+    unfocusedLabelColor = HubMuted,
+    cursorColor = HubPurple
+)
