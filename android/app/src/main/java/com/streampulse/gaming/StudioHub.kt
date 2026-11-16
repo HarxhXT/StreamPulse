@@ -565,4 +565,183 @@ fun StudioHub(onBack: () -> Unit) {
                     onClick = {
                         prefs.edit()
                             .putString("media_uri", mediaUri?.toString())
-                            .putSt
+                            .putString("media_type", mediaType)
+                            .putString("music_uri", musicUri?.toString())
+                            .putString("music_name", musicName)
+                            .apply()
+
+                        message = "Starting Soon scene saved."
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = HubPurple
+                    )
+                ) {
+                    Text("SAVE STARTING SCENE")
+                }
+
+                if (message.isNotBlank()) {
+                    Text(
+                        message,
+                        color = HubPurple,
+                        fontSize = 12.sp
+                    )
+                }
+            }
+
+            "Music" -> {
+                Text(
+                    "MUSIC",
+                    color = HubText,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Text(
+                    "Music is configured inside Starting Soon.",
+                    color = HubMuted,
+                    fontSize = 12.sp
+                )
+
+                Spacer(Modifier.height(16.dp))
+
+                Text(
+                    musicName,
+                    color = HubText,
+                    fontSize = 14.sp
+                )
+
+                Button(
+                    onClick = { selectedTab = "Scenes" },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = HubPurple
+                    )
+                ) {
+                    Text("OPEN STARTING SOON SETTINGS")
+                }
+            }
+
+            "Mixer" -> {
+                Text(
+                    "AUDIO MIXER",
+                    color = HubText,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Text(
+                    "Volume controls (interface only)",
+                    color = HubMuted,
+                    fontSize = 12.sp
+                )
+
+                Spacer(Modifier.height(18.dp))
+
+                HubVolume("Game Audio", gameVolume) {
+                    gameVolume = it
+                }
+
+                HubVolume("Microphone", micVolume) {
+                    micVolume = it
+                }
+
+                HubVolume("Background Music", musicVolume) {
+                    musicVolume = it
+                }
+
+                Text(
+                    "Actual audio mixing will be connected with the streaming engine.",
+                    color = HubMuted,
+                    fontSize = 12.sp
+                )
+            }
+        }
+
+        Spacer(Modifier.height(10.dp))
+
+        Button(
+            onClick = { showStartInfo = true },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(54.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = HubPurple
+            ),
+            shape = RoundedCornerShape(15.dp)
+        ) {
+            Text(
+                "▶ START STREAM",
+                color = HubText,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        Text(
+            "Broadcast engine and platform login are not connected yet.",
+            color = HubMuted,
+            fontSize = 10.sp
+        )
+    }
+
+    if (showStartInfo) {
+        AlertDialog(
+            onDismissRequest = { showStartInfo = false },
+            containerColor = HubCard,
+            title = {
+                Text("Streaming engine not ready", color = HubText)
+            },
+            text = {
+                Text(
+                    "Screen capture, automatic BRB switching, encoding and YouTube/Kick broadcasting still need to be connected.",
+                    color = HubMuted
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { showStartInfo = false }
+                ) {
+                    Text("OK", color = HubPurple)
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun HubVolume(
+    title: String,
+    value: Float,
+    onChange: (Float) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(HubCard, RoundedCornerShape(14.dp))
+            .padding(14.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                title,
+                color = HubText,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text("${value.toInt()}%", color = HubPurple)
+        }
+
+        Slider(
+            value = value,
+            onValueChange = onChange,
+            valueRange = 0f..100f,
+            colors = SliderDefaults.colors(
+                thumbColor = HubPurple,
+                activeTrackColor = HubPurple
+            )
+        )
+    }
+
+    Spacer(Modifier.height(12.dp))
+}
