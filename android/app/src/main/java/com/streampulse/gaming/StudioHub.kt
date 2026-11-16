@@ -872,4 +872,3 @@ private fun hubFieldColors() = OutlinedTextFieldDefaults.colors(
     unfocusedLabelColor = HubMuted,
     cursorColor = HubPurple
 )
-   
