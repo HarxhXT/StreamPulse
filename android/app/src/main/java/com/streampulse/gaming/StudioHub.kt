@@ -233,7 +233,7 @@ fun StudioHub(onBack: () -> Unit) {
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            listOf("Games", "Scenes", "Music", "Mixer").forEach { tab ->
+            listOf("Games", "Scenes", "Mixer").forEach { tab ->
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -589,39 +589,6 @@ fun StudioHub(onBack: () -> Unit) {
                         color = HubPurple,
                         fontSize = 12.sp
                     )
-                }
-            }
-
-            "Music" -> {
-                Text(
-                    "MUSIC",
-                    color = HubText,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold
-                )
-
-                Text(
-                    "Music is configured inside Starting Soon.",
-                    color = HubMuted,
-                    fontSize = 12.sp
-                )
-
-                Spacer(Modifier.height(16.dp))
-
-                Text(
-                    musicName,
-                    color = HubText,
-                    fontSize = 14.sp
-                )
-
-                Button(
-                    onClick = { selectedTab = "Scenes" },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = HubPurple
-                    )
-                ) {
-                    Text("OPEN STARTING SOON SETTINGS")
                 }
             }
 
