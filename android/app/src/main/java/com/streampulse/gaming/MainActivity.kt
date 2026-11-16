@@ -1,3 +1,4 @@
+
 package com.streampulse.gaming
 
 import android.os.Bundle
@@ -236,7 +237,6 @@ fun PremiumDashboard(onPrepare: () -> Unit) {
         SettingTile("◷", "Frame Rate", "30 FPS")
         SettingTile("▤", "Orientation", "Landscape")
         SettingTile("♫", "Microphone", "Not configured")
-        SettingTile("✦", "Scenes", "Manage in Studio")
 
         Spacer(Modifier.height(20.dp))
 
