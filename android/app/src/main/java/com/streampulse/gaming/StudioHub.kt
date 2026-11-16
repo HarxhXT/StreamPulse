@@ -8,6 +8,8 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import android.view.ViewGroup
 import android.widget.ImageView
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import android.widget.VideoView
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -191,10 +193,11 @@ fun StudioHub(onBack: () -> Unit) {
 
     Column(
         modifier = Modifier
-            .fillMaxSize()
-            .background(HubBg)
-            .statusBarsPadding()
-            .padding(16.dp)
+             .fillMaxSize()
+             .background(HubBg)
+             .statusBarsPadding()
+             .verticalScroll(rememberScrollState())
+             .padding(16.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
