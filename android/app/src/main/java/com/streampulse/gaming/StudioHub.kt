@@ -3,9 +3,9 @@ package com.streampulse.gaming
 
 import android.content.Intent
 import android.content.pm.ApplicationInfo
+import android.media.MediaPlayer
 import android.net.Uri
 import android.provider.OpenableColumns
-import android.util.Base64
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.VideoView
@@ -39,139 +39,92 @@ private data class InstalledGame(
     val packageName: String
 )
 
-private data class StreamScene(
-    val name: String,
-    val mediaUri: Uri? = null,
-    val mediaType: String = ""
-)
-
-private fun encodeScene(value: String): String {
-    return Base64.encodeToString(
-        value.toByteArray(Charsets.UTF_8),
-        Base64.NO_WRAP
-    )
-}
-
-private fun decodeScene(value: String): String {
-    return try {
-        String(
-            Base64.decode(value, Base64.NO_WRAP),
-            Charsets.UTF_8
-        )
-    } catch (_: Exception) {
-        ""
-    }
-}
-
-private fun loadScenes(
-    context: android.content.Context
-): List<StreamScene> {
-    val prefs = context.getSharedPreferences(
-        "streampulse_scenes",
-        android.content.Context.MODE_PRIVATE
-    )
-
-    val saved = prefs.getStringSet("scenes", null)
-
-    if (saved.isNullOrEmpty()) {
-        return listOf(
-            StreamScene("Starting Soon"),
-            StreamScene("Gameplay"),
-            StreamScene("BRB"),
-            StreamScene("Ending")
-        )
-    }
-
-    return saved.mapNotNull { record ->
-        val parts = record.split("~")
-        if (parts.size != 3) return@mapNotNull null
-
-        val name = decodeScene(parts[0])
-        val uriString = decodeScene(parts[1])
-        val type = decodeScene(parts[2])
-
-        if (name.isBlank()) return@mapNotNull null
-
-        StreamScene(
-            name = name,
-            mediaUri = uriString.takeIf { it.isNotBlank() }?.let {
-                Uri.parse(it)
-            },
-            mediaType = type
-        )
-    }.sortedBy { scene ->
-        listOf("Starting Soon", "Gameplay", "BRB", "Ending")
-            .indexOf(scene.name)
-            .let { if (it < 0) 100 else it }
-    }
-}
-
-private fun saveScenes(
-    context: android.content.Context,
-    scenes: List<StreamScene>
-) {
-    val records = scenes.map { scene ->
-        listOf(
-            encodeScene(scene.name),
-            encodeScene(scene.mediaUri?.toString() ?: ""),
-            encodeScene(scene.mediaType)
-        ).joinToString("~")
-    }.toSet()
-
-    context.getSharedPreferences(
-        "streampulse_scenes",
-        android.content.Context.MODE_PRIVATE
-    ).edit()
-        .putStringSet("scenes", records)
-        .apply()
-}
-
 @Composable
 fun StudioHub(onBack: () -> Unit) {
     val context = LocalContext.current
+    val prefs = remember {
+        context.getSharedPreferences(
+            "streampulse_starting_scene",
+            android.content.Context.MODE_PRIVATE
+        )
+    }
 
     var selectedTab by remember { mutableStateOf("Games") }
+    val selectedGames = remember { mutableStateListOf<String>() }
 
-    val selectedGames = remember {
-        mutableStateListOf<String>()
+    var mediaUri by remember {
+        mutableStateOf(
+            prefs.getString("media_uri", null)?.let { Uri.parse(it) }
+        )
     }
 
-    val scenes = remember {
-        mutableStateListOf<StreamScene>().apply {
-            addAll(loadScenes(context))
-        }
-    }
-
-    var selectedScene by remember {
-        mutableStateOf("Gameplay")
-    }
-
-    var customSceneName by remember {
-        mutableStateOf("")
-    }
-
-    var musicName by remember {
-        mutableStateOf("No music imported")
+    var mediaType by remember {
+        mutableStateOf(prefs.getString("media_type", "") ?: "")
     }
 
     var musicUri by remember {
-        mutableStateOf<Uri?>(null)
+        mutableStateOf(
+            prefs.getString("music_uri", null)?.let { Uri.parse(it) }
+        )
     }
 
+    var musicName by remember {
+        mutableStateOf(
+            prefs.getString("music_name", "No music imported")
+                ?: "No music imported"
+        )
+    }
+
+    var message by remember { mutableStateOf("") }
     var gameVolume by remember { mutableFloatStateOf(80f) }
     var micVolume by remember { mutableFloatStateOf(70f) }
     var musicVolume by remember { mutableFloatStateOf(25f) }
+    var showStartInfo by remember { mutableStateOf(false) }
 
-    var showStartInfo by remember {
-        mutableStateOf(false)
+    var previewPlayer by remember {
+        mutableStateOf<MediaPlayer?>(null)
     }
 
-    var sceneMessage by remember {
-        mutableStateOf("")
+    fun stopMusicPreview() {
+        try {
+            previewPlayer?.stop()
+            previewPlayer?.release()
+        } catch (_: Exception) {}
+        previewPlayer = null
     }
 
-    val currentScene = scenes.firstOrNull {
-        it.name == selectedScene
+    DisposableEffect(Unit) {
+        onDispose {
+            stopMusicPreview()
+        }
+    }
+
+    val mediaPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            val mime = context.contentResolver.getType(uri) ?: ""
+            val type = when {
+                mime.startsWith("image/") -> "image"
+                mime.startsWith("video/") -> "video"
+                else -> ""
+            }
+
+            if (type.isNotEmpty()) {
+                try {
+                    context.contentResolver.takePersistableUriPermission(
+                        uri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                } catch (_: Exception) {}
+
+                mediaUri = uri
+                mediaType = type
+                message = "Media selected. Press SAVE STARTING SCENE."
+            } else {
+                message = "Please select an image or video."
+            }
+        }
     }
 
     val musicPicker = rememberLauncherForActivityResult(
@@ -202,43 +155,8 @@ fun StudioHub(onBack: () -> Unit) {
                     "Imported audio"
                 }
             } ?: "Imported audio"
-        }
-    }
 
-    val mediaPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri != null) {
-            val mime = context.contentResolver.getType(uri) ?: ""
-
-            val type = when {
-                mime.startsWith("image/") -> "image"
-                mime.startsWith("video/") -> "video"
-                else -> ""
-            }
-
-            if (type.isNotEmpty()) {
-                try {
-                    context.contentResolver.takePersistableUriPermission(
-                        uri,
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION
-                    )
-                } catch (_: Exception) {}
-
-                val index = scenes.indexOfFirst {
-                    it.name == selectedScene
-                }
-
-                if (index >= 0) {
-                    scenes[index] = scenes[index].copy(
-                        mediaUri = uri,
-                        mediaType = type
-                    )
-                    sceneMessage = "Media selected. Press SAVE SCENE."
-                }
-            } else {
-                sceneMessage = "Please select an image or video file."
-            }
+            message = "Music selected. Save Starting Scene."
         }
     }
 
@@ -256,13 +174,7 @@ fun StudioHub(onBack: () -> Unit) {
                     return@mapNotNull null
                 }
 
-                val isSystemApp =
-                    (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-
-                val isGame =
-                    appInfo.category == ApplicationInfo.CATEGORY_GAME
-
-                if (isSystemApp && !isGame) {
+                if ((appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0) {
                     return@mapNotNull null
                 }
 
@@ -352,7 +264,7 @@ fun StudioHub(onBack: () -> Unit) {
                 )
 
                 Text(
-                    "Choose one or multiple installed apps",
+                    "Choose the apps you want to stream.",
                     color = HubMuted,
                     fontSize = 12.sp
                 )
@@ -360,9 +272,9 @@ fun StudioHub(onBack: () -> Unit) {
                 Spacer(Modifier.height(12.dp))
 
                 Text(
-                    "Selected: ${selectedGames.size}",
+                    "Available apps: ${installedGames.size}  •  Selected: ${selectedGames.size}",
                     color = HubPurple,
-                    fontSize = 14.sp
+                    fontSize = 13.sp
                 )
 
                 Row(
@@ -394,59 +306,67 @@ fun StudioHub(onBack: () -> Unit) {
 
                 Spacer(Modifier.height(8.dp))
 
-                LazyColumn(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(installedGames) { game ->
-                        val checked =
-                            selectedGames.contains(game.packageName)
+                if (installedGames.isEmpty()) {
+                    Text(
+                        "No launchable apps found. Check the AndroidManifest.xml app visibility setting.",
+                        color = HubMuted,
+                        fontSize = 13.sp
+                    )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(installedGames) { game ->
+                            val checked =
+                                selectedGames.contains(game.packageName)
 
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(
-                                    if (checked) Color(0xFF302047)
-                                    else HubCard,
-                                    RoundedCornerShape(14.dp)
-                                )
-                                .clickable {
-                                    if (checked) {
-                                        selectedGames.remove(game.packageName)
-                                    } else {
-                                        selectedGames.add(game.packageName)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(
+                                        if (checked) Color(0xFF302047)
+                                        else HubCard,
+                                        RoundedCornerShape(14.dp)
+                                    )
+                                    .clickable {
+                                        if (checked) {
+                                            selectedGames.remove(game.packageName)
+                                        } else {
+                                            selectedGames.add(game.packageName)
+                                        }
                                     }
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        game.name,
+                                        color = HubText,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        game.packageName,
+                                        color = HubMuted,
+                                        fontSize = 10.sp
+                                    )
                                 }
-                                .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    game.name,
-                                    color = HubText,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Text(
-                                    game.packageName,
-                                    color = HubMuted,
-                                    fontSize = 10.sp
+
+                                Checkbox(
+                                    checked = checked,
+                                    onCheckedChange = { value ->
+                                        if (value) {
+                                            selectedGames.add(game.packageName)
+                                        } else {
+                                            selectedGames.remove(game.packageName)
+                                        }
+                                    },
+                                    colors = CheckboxDefaults.colors(
+                                        checkedColor = HubPurple
+                                    )
                                 )
                             }
-
-                            Checkbox(
-                                checked = checked,
-                                onCheckedChange = { value ->
-                                    if (value) {
-                                        selectedGames.add(game.packageName)
-                                    } else {
-                                        selectedGames.remove(game.packageName)
-                                    }
-                                },
-                                colors = CheckboxDefaults.colors(
-                                    checkedColor = HubPurple
-                                )
-                            )
                         }
                     }
                 }
@@ -461,145 +381,100 @@ fun StudioHub(onBack: () -> Unit) {
                 )
 
                 Text(
-                    "Custom image and video backgrounds",
+                    "Only one customizable scene",
                     color = HubMuted,
                     fontSize = 12.sp
                 )
 
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(16.dp))
 
-                LazyColumn(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            Color(0xFF302047),
+                            RoundedCornerShape(14.dp)
+                        )
+                        .padding(15.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    items(scenes) { scene ->
-                        HubItem(
-                            title = scene.name,
-                            subtitle = when {
-                                scene.name == selectedScene -> "Selected scene"
-                                scene.mediaType == "video" -> "Video background saved"
-                                scene.mediaType == "image" -> "Image background saved"
-                                else -> "No background"
-                            },
-                            selected = selectedScene == scene.name,
-                            onClick = {
-                                selectedScene = scene.name
-                                sceneMessage = ""
-                            }
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "Starting Soon",
+                            color = HubText,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp
+                        )
+                        Text(
+                            "Custom image/video and music",
+                            color = HubMuted,
+                            fontSize = 11.sp
                         )
                     }
+                    Text("✓", color = HubPurple, fontSize = 22.sp)
                 }
+
+                Spacer(Modifier.height(16.dp))
+
+                Text(
+                    "BACKGROUND",
+                    color = HubPurple,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp
+                )
 
                 Spacer(Modifier.height(8.dp))
 
-                Text(
-                    "CREATE CUSTOM SCENE",
-                    color = HubPurple,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp
-                )
-
-                OutlinedTextField(
-                    value = customSceneName,
-                    onValueChange = { customSceneName = it },
-                    label = { Text("Custom scene name") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    colors = hubFieldColors()
-                )
-
-                Spacer(Modifier.height(6.dp))
-
-                Button(
-                    onClick = {
-                        val name = customSceneName.trim()
-
-                        if (
-                            name.isNotEmpty() &&
-                            scenes.none { it.name.equals(name, true) }
-                        ) {
-                            scenes.add(StreamScene(name))
-                            selectedScene = name
-                            customSceneName = ""
-                            saveScenes(context, scenes.toList())
-                            sceneMessage = "New scene created."
-                        } else {
-                            sceneMessage = "Enter a unique scene name."
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = HubPurple
+                if (mediaUri != null && mediaType == "image") {
+                    AndroidView(
+                        factory = { ctx ->
+                            ImageView(ctx).apply {
+                                scaleType = ImageView.ScaleType.CENTER_CROP
+                                layoutParams = ViewGroup.LayoutParams(
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                    220
+                                )
+                            }
+                        },
+                        update = { view ->
+                            view.setImageURI(mediaUri)
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(170.dp)
+                            .background(HubCard, RoundedCornerShape(12.dp))
                     )
-                ) {
-                    Text("＋ CREATE SCENE")
-                }
-
-                Spacer(Modifier.height(10.dp))
-
-                Text(
-                    "EDIT: $selectedScene",
-                    color = HubText,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp
-                )
-
-                // Background preview
-                if (currentScene?.mediaUri != null) {
-                    if (currentScene.mediaType == "image") {
-                        AndroidView(
-                            factory = { ctx ->
-                                ImageView(ctx).apply {
-                                    scaleType = ImageView.ScaleType.CENTER_CROP
-                                    layoutParams = ViewGroup.LayoutParams(
-                                        ViewGroup.LayoutParams.MATCH_PARENT,
-                                        220
-                                    )
+                } else if (mediaUri != null && mediaType == "video") {
+                    AndroidView(
+                        factory = { ctx ->
+                            VideoView(ctx).apply {
+                                layoutParams = ViewGroup.LayoutParams(
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                    ViewGroup.LayoutParams.MATCH_PARENT
+                                )
+                                setOnPreparedListener { player ->
+                                    player.isLooping = true
+                                    start()
                                 }
-                            },
-                            update = { view ->
-                                view.setImageURI(currentScene.mediaUri)
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(150.dp)
-                                .background(HubCard, RoundedCornerShape(12.dp))
-                        )
-                    } else if (currentScene.mediaType == "video") {
-                        AndroidView(
-                            factory = { ctx ->
-                                VideoView(ctx).apply {
-                                    layoutParams = ViewGroup.LayoutParams(
-                                        ViewGroup.LayoutParams.MATCH_PARENT,
-                                        ViewGroup.LayoutParams.MATCH_PARENT
-                                    )
-                                    setOnPreparedListener { player ->
-                                        player.isLooping = true
-                                        start()
-                                    }
-                                }
-                            },
-                            update = { view ->
-                                if (view.tag != currentScene.mediaUri.toString()) {
-                                    view.tag = currentScene.mediaUri.toString()
-                                    view.setVideoURI(currentScene.mediaUri)
-                                }
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(170.dp)
-                                .background(HubCard, RoundedCornerShape(12.dp))
-                        )
-                    }
+                            }
+                        },
+                        update = { view ->
+                            if (view.tag != mediaUri.toString()) {
+                                view.tag = mediaUri.toString()
+                                view.setVideoURI(mediaUri)
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(170.dp)
+                            .background(HubCard, RoundedCornerShape(12.dp))
+                    )
                 } else {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(100.dp)
-                            .background(
-                                HubCard,
-                                RoundedCornerShape(12.dp)
-                            ),
+                            .height(130.dp)
+                            .background(HubCard, RoundedCornerShape(12.dp)),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
@@ -613,262 +488,81 @@ fun StudioHub(onBack: () -> Unit) {
 
                 OutlinedButton(
                     onClick = {
-                        mediaPicker.launch(
-                            arrayOf("image/*", "video/*")
-                        )
+                        mediaPicker.launch(arrayOf("image/*", "video/*"))
                     },
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("＋ SELECT IMAGE OR VIDEO")
                 }
 
+                Spacer(Modifier.height(18.dp))
+
                 Text(
-                    "Supported: images and Android-compatible videos",
-                    color = HubMuted,
-                    fontSize = 11.sp
+                    "STARTING SOON MUSIC",
+                    color = HubPurple,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp
                 )
 
                 Spacer(Modifier.height(8.dp))
 
-                Button(
-                    onClick = {
-                        saveScenes(context, scenes.toList())
-                        sceneMessage = "Scene saved successfully."
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = HubPurple
-                    )
-                ) {
-                    Text("SAVE SCENE")
-                }
-
-                if (sceneMessage.isNotBlank()) {
-                    Text(
-                        sceneMessage,
-                        color = HubPurple,
-                        fontSize = 12.sp
-                    )
-                }
-            }
-
-            "Music" -> {
                 Text(
-                    "MUSIC STUDIO",
+                    musicName,
                     color = HubText,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold
+                    fontSize = 13.sp
                 )
 
-                Text(
-                    "Import audio from your phone",
-                    color = HubMuted,
-                    fontSize = 12.sp
-                )
-
-                Spacer(Modifier.height(18.dp))
-
-                HubItem(
-                    title = musicName,
-                    subtitle = if (musicUri != null)
-                        "Audio file imported"
-                    else "No audio selected",
-                    selected = musicUri != null,
-                    onClick = {}
-                )
-
-                Spacer(Modifier.height(12.dp))
-
-                Button(
+                OutlinedButton(
                     onClick = {
                         musicPicker.launch(arrayOf("audio/*"))
                     },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("＋ SELECT MUSIC")
+                }
+
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = HubPurple
-                    )
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("＋ IMPORT MUSIC")
+                    OutlinedButton(
+                        onClick = {
+                            stopMusicPreview()
+                            if (musicUri != null) {
+                                try {
+                                    previewPlayer = MediaPlayer().apply {
+                                        setDataSource(
+                                            context,
+                                            musicUri!!
+                                        )
+                                        setOnPreparedListener { it.start() }
+                                        prepareAsync()
+                                    }
+                                } catch (_: Exception) {
+                                    message = "Unable to preview this audio."
+                                }
+                            }
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("▶ PREVIEW")
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            stopMusicPreview()
+                            message = "Music preview stopped."
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("STOP")
+                    }
                 }
 
-                Spacer(Modifier.height(15.dp))
+                Spacer(Modifier.height(14.dp))
 
-                Text(
-                    "Audio playback and mixing will be added with the streaming engine. Use music you have permission to stream.",
-                    color = HubMuted,
-                    fontSize = 12.sp
-                )
-            }
-
-            "Mixer" -> {
-                Text(
-                    "AUDIO MIXER",
-                    color = HubText,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold
-                )
-
-                Text(
-                    "Independent volume controls",
-                    color = HubMuted,
-                    fontSize = 12.sp
-                )
-
-                Spacer(Modifier.height(18.dp))
-
-                HubVolume("Game Audio", gameVolume) {
-                    gameVolume = it
-                }
-
-                HubVolume("Microphone", micVolume) {
-                    micVolume = it
-                }
-
-                HubVolume("Background Music", musicVolume) {
-                    musicVolume = it
-                }
-
-                Text(
-                    "These are interface settings. Actual audio mixing is not connected yet.",
-                    color = HubMuted,
-                    fontSize = 12.sp
-                )
-            }
-        }
-
-        Spacer(Modifier.height(10.dp))
-
-        Button(
-            onClick = { showStartInfo = true },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(54.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = HubPurple
-            ),
-            shape = RoundedCornerShape(15.dp)
-        ) {
-            Text(
-                "▶ START STREAM",
-                color = HubText,
-                fontWeight = FontWeight.Bold
-            )
-        }
-
-        Text(
-            "Broadcast engine and platform login are not connected yet.",
-            color = HubMuted,
-            fontSize = 10.sp
-        )
-    }
-
-    if (showStartInfo) {
-        AlertDialog(
-            onDismissRequest = { showStartInfo = false },
-            containerColor = HubCard,
-            title = {
-                Text("Streaming engine not ready", color = HubText)
-            },
-            text = {
-                Text(
-                    "Screen capture, encoding and YouTube/Kick broadcasting still need to be connected.",
-                    color = HubMuted
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = { showStartInfo = false }
-                ) {
-                    Text("OK", color = HubPurple)
-                }
-            }
-        )
-    }
-}
-
-@Composable
-private fun HubItem(
-    title: String,
-    subtitle: String,
-    selected: Boolean,
-    onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(
-                if (selected) Color(0xFF302047) else HubCard,
-                RoundedCornerShape(14.dp)
-            )
-            .clickable { onClick() }
-            .padding(14.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                title,
-                color = HubText,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 14.sp
-            )
-            Text(
-                subtitle,
-                color = HubMuted,
-                fontSize = 11.sp
-            )
-        }
-
-        if (selected) {
-            Text("✓", color = HubPurple, fontSize = 20.sp)
-        }
-    }
-}
-
-@Composable
-private fun HubVolume(
-    title: String,
-    value: Float,
-    onChange: (Float) -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(HubCard, RoundedCornerShape(14.dp))
-            .padding(14.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(
-                title,
-                color = HubText,
-                fontWeight = FontWeight.SemiBold
-            )
-            Text("${value.toInt()}%", color = HubPurple)
-        }
-
-        Slider(
-            value = value,
-            onValueChange = onChange,
-            valueRange = 0f..100f,
-            colors = SliderDefaults.colors(
-                thumbColor = HubPurple,
-                activeTrackColor = HubPurple
-            )
-        )
-    }
-
-    Spacer(Modifier.height(12.dp))
-}
-
-@Composable
-private fun hubFieldColors() = OutlinedTextFieldDefaults.colors(
-    focusedTextColor = HubText,
-    unfocusedTextColor = HubText,
-    focusedBorderColor = HubPurple,
-    unfocusedBorderColor = HubMuted,
-    focusedLabelColor = HubPurple,
-    unfocusedLabelColor = HubMuted,
-    cursorColor = HubPurple
-)
+                Button(
+                    onClick = {
+                        prefs.edit()
+                            .putString("media_uri", mediaUri?.toString())
+                            .putSt
